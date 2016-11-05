@@ -1,4 +1,4 @@
-package main
+package chatbot
 
 import (
 	"crypto/md5"
@@ -8,21 +8,17 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	cors "github.com/heppu/simple-cors"
-	_ "github.com/joho/godotenv/autoload"
-)
-
-const (
-	// WelcomeMessage A constant to hold the welcome message
-	WelcomeMessage = "Welcome, what do you want to order?"
 )
 
 var (
+	// WelcomeMessage A constant to hold the welcome message
+	WelcomeMessage = "Welcome, what do you want to order?"
+
 	// sessions = {
 	//   "uuid1" = Session{
 	//     "history" = [
@@ -35,6 +31,8 @@ var (
 	//   ...
 	// }
 	sessions = map[string]Session{}
+
+	processor = sampleProcessor
 )
 
 type (
@@ -43,13 +41,22 @@ type (
 
 	// JSON Holds a JSON object
 	JSON map[string]interface{}
+
+	// Processor Alias for Process func
+	Processor func(session Session, message string) (string, error)
 )
 
-func process(session Session, message string) (string, error) {
+func sampleProcessor(session Session, message string) (string, error) {
+	// Make sure a history key is defined in the session which points to a slice of strings
+	_, historyFound := session["history"]
+	if !historyFound {
+		session["history"] = []string{}
+	}
+
 	// Make sure the message is unique in history
 	for _, m := range session["history"] {
 		if strings.EqualFold(m, message) {
-			return "", fmt.Errorf("Duplicate message: %s", message)
+			return "", fmt.Errorf("You've already ordered %s before!", message)
 		}
 	}
 
@@ -88,6 +95,11 @@ func withLog(fn http.HandlerFunc) http.HandlerFunc {
 func writeJSON(w http.ResponseWriter, data JSON) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(data)
+}
+
+// ProcessFunc Sets the processor of the chatbot
+func ProcessFunc(p Processor) {
+	processor = p
 }
 
 // handleWelcome Handles /welcome and responds with a welcome message and a generated UUID
@@ -136,12 +148,6 @@ func handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	// Make sure a history key is defined in the session which points to a slice of strings
-	_, historyFound := session["history"]
-	if !historyFound {
-		session["history"] = []string{}
-	}
-
 	// Make sure a message key is defined in the body of the request
 	_, messageFound := data["message"]
 	if !messageFound {
@@ -150,9 +156,9 @@ func handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Process the received message
-	message, err := process(session, data["message"].(string))
+	message, err := processor(session, data["message"].(string))
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to process message: %v.", err), 422 /* http.StatusUnprocessableEntity */)
+		http.Error(w, err.Error(), 422 /* http.StatusUnprocessableEntity */)
 		return
 	}
 
@@ -175,21 +181,14 @@ func handle(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, body)
 }
 
-func main() {
+// Engage Gives control to the chatbot
+func Engage(addr string) error {
 	// HandleFuncs
 	mux := http.NewServeMux()
 	mux.HandleFunc("/welcome", withLog(handleWelcome))
 	mux.HandleFunc("/chat", withLog(handleChat))
 	mux.HandleFunc("/", withLog(handle))
 
-	// Use the PORT environment variable
-	port := os.Getenv("PORT")
-	// Default to 3000 if no PORT environment variable was defined
-	if port == "" {
-		port = "3000"
-	}
-
 	// Start the server
-	fmt.Printf("Listening on port %s...\n", port)
-	log.Fatalln(http.ListenAndServe(":"+port, cors.CORS(mux)))
+	return http.ListenAndServe(addr, cors.CORS(mux))
 }
