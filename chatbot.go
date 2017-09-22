@@ -20,14 +20,7 @@ var (
 	WelcomeMessage = "Welcome, what do you want to order?"
 
 	// sessions = {
-	//   "uuid1" = Session{
-	//     "history" = [
-	//       "Message 1",
-	//       "Message 2",
-	//       "Message 3",
-	//       ...
-	//     ]
-	//   },
+	//   "uuid1" = Session{...},
 	//   ...
 	// }
 	sessions = map[string]Session{}
@@ -37,7 +30,7 @@ var (
 
 type (
 	// Session Holds info about a session
-	Session map[string][]string
+	Session map[string]interface{}
 
 	// JSON Holds a JSON object
 	JSON map[string]interface{}
@@ -53,25 +46,30 @@ func sampleProcessor(session Session, message string) (string, error) {
 		session["history"] = []string{}
 	}
 
+	// Fetch the history from session and cast it to an array of strings
+	history, _ := session["history"].([]string)
+
 	// Make sure the message is unique in history
-	for _, m := range session["history"] {
+	for _, m := range history {
 		if strings.EqualFold(m, message) {
 			return "", fmt.Errorf("You've already ordered %s before!", message)
 		}
 	}
 
 	// Add the message in the parsed body to the messages in the session
-	session["history"] = append(session["history"], message)
+	history = append(history, message)
 
 	// Form a sentence out of the history in the form Message 1, Message 2, and Message 3
-	words := session["history"]
-	l := len(words)
+	l := len(history)
 	wordsForSentence := make([]string, l)
-	copy(wordsForSentence, words)
+	copy(wordsForSentence, history)
 	if l > 1 {
 		wordsForSentence[l-1] = "and " + wordsForSentence[l-1]
 	}
 	sentence := strings.Join(wordsForSentence, ", ")
+
+	// Save the updated history to the session
+	session["history"] = history
 
 	return fmt.Sprintf("So, you want %s! What else?", strings.ToLower(sentence)), nil
 }
